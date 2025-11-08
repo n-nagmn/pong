@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Pong Game Client</title>
+    <meta charset="UTF-8">
+    <style>
+      body { 
+        font-family: sans-serif; 
+        display: flex; 
+        justify-content: center; 
+        align-items: center; 
+        flex-direction: column; 
+        background-color: #f0f0f0; 
+      }
+      canvas { 
+        border: 2px solid #333; 
+        background-color: #000; 
+      }
+      /* ★ 情報表示用のスタイル */
+      #info { 
+        font-size: 1.2em; 
+        margin: 10px; 
+        color: #333;
+      }
+    </style>
+</head>
+<body>
+
+    <h1>Pong Game</h1>
+    <div id="info">サーバーに接続中...</div>
+    <canvas id="gameCanvas"></canvas>
+
+    <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+    <script>
+      const socket = io(); // Nginxのアドレス
+      const canvas = document.getElementById('gameCanvas');
+      const ctx = canvas.getContext('2d');
+      const infoDisplay = document.getElementById('info');
+
+      let currentGameState = null;
+      let myRole = null; // 自分が 'p1' か 'p2' か
+
+      // --- 1. サーバーからのイベント受信 ---
+
+      // (A) 待機中に呼ばれる
+      socket.on('waitingForPlayer', () => {
+          infoDisplay.textContent = "対戦相手を待っています...";
+      });
+
+      // (B) 2人揃ったら呼ばれる
+      socket.on('gameStart', (data) => {
+          myRole = data.role; // 自分は P1 か P2 か
+          infoDisplay.textContent = `ゲーム開始！ (あなたは ${myRole} です)`;
+      });
+
+      // (C) ゲーム中の状態更新 (変更なし)
+      socket.on('gameState', (state) => {
+          currentGameState = state;
+          // Canvasのサイズを初回設定
+          if (canvas.width !== state.field.width) {
+              canvas.width = state.field.width;
+              canvas.height = state.field.height;
+          }
+      });
+      
+      // (D) 相手が切断したら呼ばれる
+      socket.on('opponentDisconnected', () => {
+          infoDisplay.textContent = "相手が切断しました。ページをリロードして新しいゲームを探してください。";
+          currentGameState = null; // ゲーム描画を停止
+      });
+      
+      // (E) 自分がサーバーから切断された
+      socket.on('disconnect', () => {
+          infoDisplay.textContent = "サーバーから切断されました。";
+      });
+
+
+      // --- 2. ブラウザの描画ループ (変更なし) ---
+      function draw() {
+          requestAnimationFrame(draw);
+          
+          // currentGameState が null (待機中や終了後) なら描画しない
+          if (!currentGameState) {
+              // (待機画面などを描画しても良い)
+              return;
+          }
+
+          const state = currentGameState;
+
+          // (a) 背景
+          ctx.fillStyle = 'black';
+          ctx.fillRect(0, 0, state.field.width, state.field.height);
+
+          // (b) プレイヤー1 (左のバー)
+          ctx.fillStyle = 'white';
+          const p1Height = state.player1.height;
+          const p1y = state.player1.y;
+          ctx.fillRect(10, p1y - (p1Height / 2), 20, p1Height);
+          
+          // (c) プレイヤー2 (右のバー)
+          const p2Height = state.player2.height;
+          const p2y = state.player2.y;
+          ctx.fillRect(state.field.width - 30, p2y - (p2Height / 2), 20, p2Height);
+
+          // (d) ボール
+          ctx.beginPath();
+          ctx.arc(state.ball.x, state.ball.y, 10, 0, Math.PI * 2);
+          ctx.fill();
+    
+          // (e) スコア
+          ctx.font = '40px sans-serif';
+          ctx.fillText(state.score.p1, state.field.width / 4, 50);
+          ctx.fillText(state.score.p2, (state.field.width / 4) * 3, 50);
+      }
+      draw(); // 描画ループを開始
+
+
+      // --- 3. サーバーに入力を送信 (変更なし) ---
+      const keysPressed = {};
+
+      document.addEventListener('keydown', (e) => {
+          if (!keysPressed[e.key]) {
+              keysPressed[e.key] = true;
+              if (e.key === 'ArrowUp') {
+                  socket.emit('move', { direction: 'up' });
+              } else if (e.key === 'ArrowDown') {
+                  socket.emit('move', { direction: 'down' });
+              }
+          }
+      });
+
+      document.addEventListener('keyup', (e) => {
+          if (keysPressed[e.key]) {
+              keysPressed[e.key] = false;
+              if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+                  socket.emit('stop');
+              }
+          }
+      });
+    </script>
+</body>
+</html>
